@@ -1,0 +1,621 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/16/Stats.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+<script>
+    import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.121.1/build/three.module.js";
+    import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.121.1/examples/jsm/controls/OrbitControls.js";
+
+    // vertex shader source
+    const vertexParticleShader = `
+uniform float uTime;
+uniform float uAmplitude;
+
+varying vec3 vPos;
+
+float PI = 3.14159265359;
+
+attribute float number;
+
+float a = 5.0;
+float b = 3.14159265359 / 3.0;
+float c = 7.0;
+float d = 3.14159265359 / 5.0;
+
+void main(){
+  vec3 pos = position.xyz;
+  
+  pos.x = cos(a * number + b + uTime) * uAmplitude;
+  pos.y = cos(c * number + d + uTime) * uAmplitude;
+  pos.z = tan(number + uTime) * uAmplitude;
+  
+  vPos = pos;
+  
+  vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+  
+  gl_Position = projectionMatrix * mvPosition;
+}
+
+`;
+
+    // fragment shader source
+    const fragmentParticleShader = `
+uniform float uTime;
+
+varying vec3 vPos;
+
+vec3 pal( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d ) {
+  return a + b*cos( 6.28318*(c*t+d) );
+}
+
+void main () {
+  float len = length(vPos);
+  
+  vec3 color =
+    pal(
+      length(len * 0.001 - uTime * 0.5),
+      vec3(0.5,0.5,0.5),vec3(0.5,0.5,0.5),vec3(2.0,1.0,0.0),vec3(0.5,0.20,0.25)
+    );
+  
+  gl_FragColor = vec4(color, 0.4);
+}
+`;
+
+    const vertexBoxShader = `
+uniform float uTime;
+uniform float uAmplitude;
+
+varying vec3 vPos;
+
+float PI = 3.14159265359;
+
+attribute float number;
+
+float a = 5.0;
+float b = 3.14159265359 / 3.0;
+float c = 7.0;
+float d = 3.14159265359 / 5.0;
+
+void main(){
+  vec3 pos = position.xyz;
+  
+  vPos = pos;
+  
+  vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+  
+  //gl_PointSize = 60.0 * (120.0 / - mvPosition.z);
+  gl_Position = projectionMatrix * mvPosition;
+}
+`;
+
+    const fragmentBoxShader = `
+uniform float uTime;
+
+varying vec3 vPos;
+
+// Referred to https://iquilezles.org/www/articles/palettes/palettes.htm
+// Thank you so much.
+vec3 pal( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d ) {
+  return a + b*cos( 6.28318*(c*t+d) );
+}
+
+void main () {
+  //float f = length(gl_PointCoord - vec2(0.5, 0.5));
+  //if (f > 0.1) discard;
+  
+  float len = length(vPos);
+  
+  vec3 color =
+    pal(
+      length(len * 0.01 - uTime * 0.5),
+      vec3(0.5,0.5,0.5),vec3(0.5,0.5,0.5),vec3(2.0,1.0,0.0),vec3(0.5,0.20,0.25)
+    );
+  
+  gl_FragColor = vec4(color, 0.4);
+}
+`;
+
+    /**
+     * Dat class
+     */
+    class Dat {
+        constructor(sketch) {
+            this.sketch = sketch;
+
+            this.initialize();
+        }
+
+        initialize() {
+            this.gui = new dat.GUI();
+            this.parameters = this.setParameters();
+            this.controller = this.setController();
+            this.gui.close();
+        }
+
+        setParameters() {
+            let parameters;
+
+            parameters = {
+                number: 1000,
+                amplitude: 100.0,
+            };
+
+            return parameters;
+        }
+
+        setController() {
+            let controller;
+
+            controller = {
+                number: this.gui
+                    .add(this.parameters, "number", 100, 50000, 100)
+                    .onChange(() => this.sketch.initialize()),
+                amplitude: this.gui
+                    .add(this.parameters, "amplitude", 0.0, 1000.0, 1.0)
+                    .onChange(() => this.sketch.initialize()),
+            };
+
+            return controller;
+        }
+    }
+
+    /**
+     * Mouse class
+     */
+    class Mouse {
+        constructor(sketch) {
+            this.sketch = sketch;
+
+            this.initialize();
+        }
+
+        initialize() {
+            this.mouse = new THREE.Vector3();
+            this.touchStart = new THREE.Vector3();
+            this.touchMove = new THREE.Vector3();
+            this.touchEnd = new THREE.Vector3();
+
+            this.delta = 1;
+
+            this.setupEvents();
+        }
+
+        setupEvents() {
+            this.sketch.renderer.domElement.addEventListener(
+                "mousemove",
+                this.onMousemove.bind(this),
+                false
+            );
+            this.sketch.renderer.domElement.addEventListener(
+                "touchstart",
+                this.onTouchstart.bind(this),
+                false
+            );
+            this.sketch.renderer.domElement.addEventListener(
+                "touchmove",
+                this.onTouchmove.bind(this),
+                false
+            );
+            this.sketch.renderer.domElement.addEventListener(
+                "touchend",
+                this.onTouchend.bind(this),
+                false
+            );
+            this.sketch.renderer.domElement.addEventListener(
+                "onWheel",
+                this.onWheel.bind(this),
+                false
+            );
+        }
+
+        onMousemove(e) {
+            this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            this.mouse.z = 0;
+        }
+
+        onTouchstart(e) {
+            const touch = e.targetTouches[0];
+
+            this.touchStart.x = touch.pageX;
+            this.touchStart.y = touch.pageY;
+            this.touchStart.z = 0.0;
+
+            this.mouse.x = (touch.pageX / window.innerWidth) * 2 - 1;
+            this.mouse.y = -(touch.pageY / window.innerHeight) * 2 + 1;
+            this.mouse.z = 0;
+        }
+
+        onTouchmove(e) {
+            const touch = e.targetTouches[0];
+
+            this.touchMove.x = touch.pageX;
+            this.touchMove.y = touch.pageY;
+            this.touchMove.z = 0.0;
+
+            this.touchEnd.x = this.touchStart.x - this.touchMove.x;
+            this.touchEnd.y = this.touchStart.y - this.touchMove.y;
+            this.touchEnd.z = 0.0;
+
+            this.mouse.x = (touch.pageX / window.innerWidth) * 2 - 1;
+            this.mouse.y = -(touch.pageY / window.innerHeight) * 2 + 1;
+            this.mouse.z = 0;
+
+            if (this.touchMove.y < this.touchStart.y) {
+                this.delta += (this.touchEnd.y - this.touchStart.y) * 0.0001;
+            } else {
+                this.delta -= (this.touchEnd.y - this.touchStart.y) * 0.0001;
+            }
+        }
+
+        onTouchend(e) {
+            this.touchStart.x = null;
+            this.touchStart.y = null;
+            this.touchStart.z = null;
+
+            this.touchMove.x = null;
+            this.touchMove.y = null;
+            this.touchMove.z = null;
+
+            this.touchEnd.x = null;
+            this.touchEnd.y = null;
+            this.touchEnd.z = null;
+        }
+
+        onWheel(e) {
+            this.delta -= e.deltaY * 0.01;
+        }
+    }
+
+    /**
+     * class Sketch
+     */
+    class Sketch {
+        constructor() {
+            this.createCanvas();
+            this.setupEvents();
+            //this.setupStats();
+
+            this.time = new THREE.Clock(true);
+            this.mouse = new Mouse(this);
+            this.dat = new Dat(this);
+
+            this.initialize();
+        }
+
+        createCanvas() {
+            this.renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true,
+            });
+
+            document
+                .getElementById("container")
+                .appendChild(this.renderer.domElement);
+        }
+
+        setupStats() {
+            this.stats = new Stats();
+            this.stats.setMode(0);
+            this.stats.domElement.style.position = "absolute";
+            this.stats.domElement.style.left = "0";
+            this.stats.domElement.style.top = "0";
+
+            document
+                .getElementById("container")
+                .appendChild(this.stats.domElement);
+        }
+
+        initialize() {
+            if (this.animationId) {
+                cancelAnimationFrame(this.animationId);
+            }
+
+            this.width = Math.ceil(window.innerWidth);
+            this.height = Math.ceil(window.innerHeight);
+
+            this.scene = new THREE.Scene();
+
+            this.setupCanvas();
+            this.setupCamera();
+            this.setupLight();
+            this.setupShape();
+
+            this.draw();
+        }
+
+        setupCanvas() {
+            this.renderer.setSize(this.width, this.height);
+            //this.renderer.setPixelRatio(window.devicePixelRatio);
+            this.renderer.setPixelRatio(1.0);
+            this.renderer.setClearColor(0x000000, 1.0);
+
+            this.renderer.domElement.style.position = "fixed";
+            this.renderer.domElement.style.top = "0";
+            this.renderer.domElement.style.left = "0";
+            this.renderer.domElement.style.width = "100%";
+            this.renderer.domElement.style.height = "100%";
+            this.renderer.domElement.style.zIndex = "0";
+            this.renderer.domElement.style.outline = "none";
+        }
+
+        setupCamera() {
+            const fov = 70;
+            const fovRadian = (fov / 2) * (Math.PI / 180);
+
+            this.dist = this.height / 2 / Math.tan(fovRadian);
+
+            this.camera = new THREE.PerspectiveCamera(
+                fov,
+                this.width / this.height,
+                0.01,
+                this.dist * 5
+            );
+
+            this.camera.position.set(0, 0, this.dist);
+            this.camera.lookAt(new THREE.Vector3());
+
+            this.scene.add(this.camera);
+
+            this.controls = new OrbitControls(
+                this.camera,
+                this.renderer.domElement
+            );
+        }
+
+        updateCamera(time) {
+            this.camera.position.set(
+                Math.cos(-time * 0.1) * this.dist,
+                Math.sin(time * 0.1) * this.dist,
+                Math.sin(-time * 0.1) * this.dist
+            );
+            this.camera.lookAt(new THREE.Vector3());
+        }
+
+        setupLight() {
+            // directinal light
+            this.directionalLight = new THREE.DirectionalLight(0xffffff);
+            this.scene.add(this.directionalLight);
+
+            // point light
+            this.spotLight = new THREE.SpotLight(0xffffff);
+            this.spotLight.position.set(this.dist, this.dist, this.dist);
+            this.scene.add(this.spotLight);
+        }
+
+        setupShape() {
+            this.shapes = new Array();
+            const s = new Shape(this);
+            this.shapes.push(s);
+        }
+
+        draw() {
+            //this.stats.begin();
+
+            const time = this.time.getElapsedTime();
+
+            for (let i = 0; i < this.shapes.length; i++) {
+                this.shapes[i].render(time);
+            }
+
+            this.renderer.render(this.scene, this.camera);
+
+            //this.stats.end();
+            this.animationId = requestAnimationFrame(this.draw.bind(this));
+        }
+
+        setupEvents() {
+            window.addEventListener("resize", this.onResize.bind(this), false);
+        }
+
+        onResize() {
+            this.initialize();
+        }
+    }
+
+    /**
+     * shape class
+     */
+    class Shape {
+        /**
+         * @constructor
+         * @param {object} sketch - canvas
+         */
+        constructor(sketch) {
+            this.sketch = sketch;
+
+            this.initialize();
+        }
+
+        /**
+         * initialize shape
+         */
+        initialize() {
+            // box
+            const size = this.sketch.dat.parameters.amplitude;
+
+            this.boxGeometry = new THREE.BoxGeometry(
+                size * 0.8,
+                size * 0.8,
+                size * 0.8
+            );
+            this.boxMaterial = new THREE.ShaderMaterial({
+                side: THREE.DoubleSide,
+                uniforms: {
+                    uTime: { type: "f", value: 0 },
+                },
+                blending: THREE.AdditiveBlending,
+                transparent: true,
+                vertexShader: vertexBoxShader,
+                fragmentShader: fragmentBoxShader,
+            });
+            this.boxMesh = new THREE.Mesh(this.boxGeometry, this.boxMaterial);
+            this.sketch.scene.add(this.boxMesh);
+
+            // lines
+            this.number = this.sketch.dat.parameters.number;
+            this.particleGeometry = new THREE.BufferGeometry();
+            this.positions = new Float32Array(this.number * 3);
+            this.numbers = new Float32Array(this.number);
+
+            for (let i = 0; i < this.number; i++) {
+                /*
+      const a = 100;
+      const b = 100;
+      let u = i * Math.PI / 180 * 0.01;
+      
+      const x = (a + b * Math.cos(u)) * Math.cos(i);
+      const y = (a + b * Math.cos(u)) * Math.sin(i);
+      const z = b * Math.sin(u);
+      */
+                this.positions.set([0, 0, 0], i * 3);
+            }
+
+            for (let i = 0; i < this.number; i++) {
+                this.numbers.set([i], i);
+            }
+
+            this.particleGeometry.setAttribute(
+                "position",
+                new THREE.BufferAttribute(this.positions, 3)
+            );
+            this.particleGeometry.setAttribute(
+                "number",
+                new THREE.BufferAttribute(this.numbers, 1)
+            );
+
+            this.particleMaterial = new THREE.ShaderMaterial({
+                side: THREE.DoubleSide,
+                uniforms: {
+                    uTime: { type: "f", value: 0 },
+                    uAmplitude: { type: "f", value: size },
+                    uResolution: {
+                        type: "v2",
+                        value: new THREE.Vector2(
+                            this.sketch.width,
+                            this.sketch.height
+                        ),
+                    },
+                },
+                blending: THREE.AdditiveBlending,
+                transparent: true,
+                vertexShader: vertexParticleShader,
+                fragmentShader: fragmentParticleShader,
+            });
+
+            this.particlePoint = new THREE.Line(
+                this.particleGeometry,
+                this.particleMaterial
+            );
+            this.sketch.scene.add(this.particlePoint);
+        }
+
+        updateParameters(time) {
+            this.particlePoint.material.uniforms.uTime.value = time;
+            this.particlePoint.material.uniforms.uAmplitude.value =
+                this.sketch.dat.parameters.amplitude;
+            this.particlePoint.rotation.z = -time * 0.5;
+
+            this.boxMesh.material.uniforms.uTime.value = time;
+            this.boxMesh.rotation.z = -time * 0.5;
+            this.boxMesh.rotation.x = time * 0.5;
+        }
+
+        /**
+         * render shape
+         * @param {number} time - time
+         */
+        render(time) {
+            this.updateParameters(time);
+        }
+    }
+
+    (() => {
+        window.addEventListener("load", () => {
+            console.clear();
+
+            const loading = document.getElementById("loading");
+            loading.classList.add("loaded");
+
+            new Sketch();
+        });
+    })();
+</script>
+
+#loading .circle #container .box
+
+<style>
+    html, body
+      height: 100%;
+      width: 100%;
+
+    body
+      font-size: 62.5%;
+      background: #FFF;
+      overflow: hidden;
+      color: #FFF;
+      font-family: serif;
+      overscroll-behavior: none;
+
+    #loading
+      background: black;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 9999;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      visibility: visible;
+      opacity: 1;
+      transition: visibility 1.6s, opacity 1.6s;
+      .circle
+        width: 50px;
+        height: 50px;
+        background: white;
+        border-radius: 50%;
+        opacity: 0;
+        transform: scale(0, 0);
+        animation: circle-animation 1.6s ease-in-out 0s infinite normal none;
+
+    #loading.loaded
+      visibility: hidden;
+      opacity: 0;
+
+    #container
+      width: 100%;
+      height: 100%;
+      .box
+        color: white;
+        font-size: 3.2rem;
+        position: fixed;
+        z-index: 1;
+        top: 50%;
+        left: 10%;
+        transform: translateY(-50%);
+        overflow: hidden;
+        h1
+          letter-spacing: 0.4rem;
+          padding-bottom: 0.8rem;
+          &::after
+            content: '';
+            position: absolute;
+            height: 4px;
+            width: 100%;
+            background: #fff;
+            bottom: 0.8rem;
+            left: 0;
+        p
+          font-size: 0.8rem;
+        .expansion
+          font-size: 6.4rem;
+
+    /** css animation */
+    @keyframes circle-animation
+      0%
+        opacity: 0;
+        transform: scale(0, 0);
+      50%
+        opacity: 1;
+        transform: scale(1, 1);
+</style>
