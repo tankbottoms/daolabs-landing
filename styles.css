@@ -54,9 +54,6 @@ a:hover {
 
 #content {
   overflow: hidden;
-  border: solid;
-  border-width: 1px 0 1px 0;
-  border-color: #d1d1d1;
   height: auto;
   display: flex;
 }
@@ -77,9 +74,6 @@ a:hover {
   font-family: "Inconsolata", monospace;
   letter-spacing: 1.15px;
   padding: 5px 0 10px 10px;
-  border: solid;
-  border-width: 0 0 0 1px;
-  border-color: #d1d1d1;
 }
 
 #date {
